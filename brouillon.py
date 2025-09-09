@@ -158,7 +158,8 @@ x_train = pd.DataFrame(
 #x_train = pd.read_csv("waiting_times_train(in).csv", sep=";")
 
 print(x_train.head())
-
+print("Nombre de colonnes :", x_train.shape[1])
+print("Noms des colonnes :", list(x_train.columns))
 
 # Convertir DataFrame/Series en tensors
 x_tensor = torch.tensor(x_train.values, dtype=torch.float32)
@@ -171,13 +172,13 @@ train_size = int(0.8 * len(dataset))
 val_size = len(dataset) - train_size
 train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
 
-batch_size = 64
+batch_size = 128
 train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 val_loader = DataLoader(val_dataset, batch_size=batch_size)
 
 
 input_dim = x_train.shape[1]  # nombre de features
-hidden_dim = 64
+hidden_dim = 128
 dropout=0.4
 
 class MLPBaseline(nn.Module):
@@ -186,9 +187,11 @@ class MLPBaseline(nn.Module):
         self.network = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
+            nn.BatchNorm1d(hidden_dim),
             nn.Dropout(dropout),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
+            nn.BatchNorm1d(hidden_dim),
             nn.Dropout(dropout),
             nn.Linear(hidden_dim, 1)
         )
