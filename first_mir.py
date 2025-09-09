@@ -86,6 +86,6 @@ print(f"Degree = {deg}, RMSE_train = {RMSE_train:.3f}")
 
 
 x_test = pd.read_csv("waiting_times_X_test_val(2).csv")
-y_test = poly_apply(lin_reg, deg, x_test)
-x_test["y_test"] = y_test
+y_pred = poly_apply(lin_reg, deg, x_test)
+x_test["y_pred"] = y_pred
 x_test.to_csv("nouveau_val_set.csv", index=False)

@@ -1,3 +1,4 @@
+"""
 import pandas as pd
 
 import numpy as np
@@ -33,35 +34,12 @@ def true_train_function(a=0, b=None):
     return Y
 
 def generate_data(D=4, N=100):
-    """
-    Generate synthetic noisy data for regression tasks.
-    INPUTS:
-    D : int, Number of dimensions of the input data
-    N : int, Number of samples to generate.
-    noise_level : float, Standard deviation of Gaussian noise
-
-    RETURNS:
-    tuple
-        X : numpy.ndarray, input data of shape (N, D).
-        Y : numpy.ndarray, target values with added noise.
-    """
     np.random.seed(SEED)  # Set the seed for reproducibility
     X = np.random.rand(N, D)  # Generate random observation
     Y = np.random.rand(N, 1) # Create target value and add noise
     return X, Y
 
 def poly_fit(X, Y, deg):
-    """
-    Fits a polynomial regression model to the data.
-
-    INPUTS:
-    X : numpy.ndarray, Input data of shape (N, D)
-    Y : numpy.ndarray, Target values of shape (N,).
-    deg : int, degree of the polynomial features.
-
-    RETURNS:
-    LinearRegression, The fitted linear regression model.
-    """
     # Generate polynomial features up to the specified degree
     X_poly = PolynomialFeatures(degree=deg).fit_transform(X)
 
@@ -74,17 +52,6 @@ def poly_fit(X, Y, deg):
 
 # Function to apply the polynomial regression model to new data
 def poly_apply(lin_reg, degree, X):
-    """
-    Applies the fitted polynomial regression model to new data.
-
-    INPUTS:
-    lin_reg : LinearRegression, The fitted linear regression model.
-    degree : int, The degree of the polynomial features used in the model.
-    X : numpy.ndarray, Input data to apply the model on, of shape (N, D).
-
-    RETRUNS:
-    numpy.ndarray, The predicted target values for the input data.
-    """
     # Generate polynomial features for the new data
     X_poly = PolynomialFeatures(degree).fit_transform(X)
 
@@ -102,7 +69,7 @@ RMSE_train = RMSE(poly_apply(lin_reg, deg, train_sans_y), y_time)
 #RMSE_test = RMSE(poly_apply(lin_reg, deg, X_test), Y_test) #TODO
 
 print(f"Degree = {deg}, RMSE_train = {RMSE_train:.3f}")
-
+"""
 
 """
 # Evaluate RMSE for polynomial degrees from 1 to 8
@@ -134,3 +101,164 @@ plt.title('RMSE for Training and Test Sets')
 plt.legend()
 plt.show()
 """
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset, Subset, random_split
+import torchvision
+import torchvision.transforms as transforms
+from torchinfo import summary
+
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import confusion_matrix
+import seaborn as sns
+import matplotlib.pyplot as plt
+import numpy as np
+from tqdm.auto import tqdm
+import random
+
+import pandas as pd
+
+seed = 42
+torch.manual_seed(seed)
+np.random.seed(seed)
+random.seed(seed)
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
+
+
+
+train_set = pd.read_csv("waiting_times_train.csv")
+y_train = train_set.iloc[:, -1]
+
+weather = pd.read_csv("weather_data.csv")
+merged_train = train_set.merge(weather, on="DATETIME", how="left")
+cols_train_drop = ["DATETIME", "ENTITY_DESCRIPTION_SHORT", "TIME_TO_PARADE_1", "TIME_TO_PARADE_2", "TIME_TO_NIGHT_SHOW", "WAIT_TIME_IN_2H", "rain_1h", "snow_1h"]
+merged_train = merged_train.drop(columns=[c for c in cols_train_drop if c in merged_train.columns])
+scaler = StandardScaler()
+x_train = pd.DataFrame(
+    scaler.fit_transform(merged_train),
+    columns=merged_train.columns,
+    index=merged_train.index
+) #x_train_scaled
+#x_train = pd.read_csv("waiting_times_train(in).csv", sep=";")
+
+print(x_train.head())
+
+
+# Convertir DataFrame/Series en tensors
+x_tensor = torch.tensor(x_train.values, dtype=torch.float32)
+y_tensor = torch.tensor(y_train.values, dtype=torch.float32)
+
+dataset = TensorDataset(x_tensor, y_tensor)
+
+# Séparer train/val (80/20 par exemple)
+train_size = int(0.8 * len(dataset))
+val_size = len(dataset) - train_size
+train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+
+batch_size = 64
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=batch_size)
+
+
+input_dim = x_train.shape[1]  # nombre de features
+hidden_dim = 64
+dropout=0.4
+
+class MLPBaseline(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.network = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, 1)
+        )
+
+    def forward(self, x):
+        return self.network(x).squeeze(1)
+    
+model = MLPBaseline()
+
+criterion = nn.MSELoss()  # classification multi-classe
+optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-4)
+
+
+num_epochs = 100
+best_rmse = float('inf')
+iteration = 0
+limite_iteration = 5
+best_state = None
+
+for epoch in range(num_epochs):
+    model.train()
+    for x_train_batch, y_train_batch in train_loader:
+        optimizer.zero_grad()
+        outputs = model(x_train_batch)
+        loss = criterion(outputs, y_train_batch)
+        loss.backward()
+        optimizer.step()
+    
+    # Validation
+    model.eval()
+    squared_errors = []
+    with torch.no_grad():
+        for x_val_batch, y_val_batch in val_loader:
+            outputs = model(x_val_batch)
+            errors = (outputs - y_val_batch) ** 2
+            squared_errors.append(errors.mean().item())
+
+    rmse = np.sqrt(np.mean(squared_errors))
+    print(f"Epoch {epoch+1}: Val RMSE = {rmse:.4f}")
+
+    if rmse < best_rmse:
+        best_rmse = rmse
+        best_state = model.state_dict()
+        iteration = 0
+    else:
+        iteration += 1
+        if iteration >= limite_iteration:
+            print("Early stopping !")
+            break
+
+model.load_state_dict(best_state)
+
+
+
+weather = pd.read_csv("weather_data.csv")
+test_set = pd.read_csv("waiting_times_X_test_val.csv")
+merged_test = test_set.merge(weather, on="DATETIME", how="left")
+cols_test_drop = ["DATETIME", "ENTITY_DESCRIPTION_SHORT", "TIME_TO_PARADE_1", "TIME_TO_PARADE_2", "TIME_TO_NIGHT_SHOW", "WAIT_TIME_IN_2H", "rain_1h", "snow_1h"]
+merged_test = merged_test.drop(columns=[c for c in cols_test_drop if c in merged_test.columns])
+x_test = pd.DataFrame(
+    scaler.transform(merged_test),
+    columns=merged_test.columns,
+    index=merged_test.index) #x_test_scaled
+#x_test = pd.read_csv("waiting_times_X_test_val(2).csv")
+
+x_test_tensor = torch.tensor(x_test.values, dtype=torch.float32)
+test_loader = DataLoader(TensorDataset(x_test_tensor), batch_size=32)
+
+# Prédictions
+model.eval()
+all_preds = []
+with torch.no_grad():
+    for (x_test_batch,) in test_loader:
+        preds = model(x_test_batch)
+        # arrondir aux multiples de 5 pour garder l'échelle
+        preds_rounded = torch.clamp(torch.round(preds / 5) * 5, 0, 180)
+        all_preds.extend(preds_rounded.cpu().numpy())
+
+y_test_pred = pd.Series(all_preds, name="y_pred")
+set_arendre = pd.read_csv("waiting_times_X_test_val.csv")
+cols_arendre_drop = ["DOWNTIME", "TIME_TO_PARADE_1", "TIME_TO_PARADE_2", "TIME_TO_NIGHT_SHOW", "ADJUST_CAPACITY", "CURRENT_WAIT_TIME"]
+set_arendre = set_arendre.drop(columns=[c for c in cols_arendre_drop if c in set_arendre.columns])
+set_arendre["KEY"] = "Validation"
+set_arendre["y_pred"] = y_test_pred
+set_arendre.to_csv("set_arendre.csv", index=False)
