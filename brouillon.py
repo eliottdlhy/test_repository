@@ -104,3 +104,33 @@ RMSE_train = RMSE(poly_apply(lin_reg, deg, train_sans_y), y_time)
 print(f"Degree = {deg}, RMSE_train = {RMSE_train:.3f}")
 
 
+"""
+# Evaluate RMSE for polynomial degrees from 1 to 8
+degrees = range(1, 10)  # Define the range of polynomial degrees to evaluate
+RMSE_train_list = []  # List to store RMSE for training data
+
+
+# Loop through each degree, fit the model, and calculate RMSE
+for deg in degrees:
+    # Fit the polynomial regression model on the train with the current degree
+    lin_reg = poly_fit(train_set_new, y_time, deg)
+
+    # Calculate the Root Mean Squared Error (RMSE) for the training and test sets
+    RMSE_train = RMSE(poly_apply(lin_reg, deg,train_set_new ), y_time)
+
+
+    #print(f"Degree = {deg}, RMSE_train = {RMSE_train:.3f}, RMSE_test = {RMSE_test:.3f}")
+
+    RMSE_train_list.append(RMSE_train)
+
+
+    #print(f"Degree = {deg}, RMSE_train = {RMSE_train:.3f}, RMSE_test = {RMSE_test:.3f}")
+
+# Plot RMSE for training and test sets across different polynomial degrees
+plt.plot(degrees, RMSE_train_list, label='Train RMSE', marker='o')
+plt.xlabel('Polynomial Degree')
+plt.ylabel('RMSE')
+plt.title('RMSE for Training and Test Sets')
+plt.legend()
+plt.show()
+"""
