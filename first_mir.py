@@ -78,7 +78,7 @@ def poly_apply(lin_reg, degree, X):
 
 
 # Set the polynomial degree
-deg = 1
+deg = 7
 # Fit a polynomial regression model of degree deg to the training data
 #lin_reg = poly_fit(train_sans_y, y_time, deg)
 lin_reg = poly_fit(train_set_new, y_time, deg)
@@ -87,10 +87,17 @@ lin_reg = poly_fit(train_set_new, y_time, deg)
 RMSE_train = RMSE(poly_apply(lin_reg, deg, train_set_new), y_time)
 #RMSE_test = RMSE(poly_apply(lin_reg, deg, X_test), Y_test) #TODO
 
+
 print(f"Degree = {deg}, RMSE_train = {RMSE_train:.3f}")
 
+x_test = pd.read_csv("waiting_times_X_test_val(2).csv")
+y_test = poly_apply(lin_reg, deg, x_test)
+np.set_printoptions(threshold=np.inf)  # affiche tout
 
+x_test["y_test"] = y_test
+x_test.to_csv("nouveau_val_set.csv", index=False)
 
+"""
 # Evaluate RMSE for polynomial degrees from 1 to 8
 degrees = range(1, 10)  # Define the range of polynomial degrees to evaluate
 RMSE_train_list = []  # List to store RMSE for training data
@@ -119,4 +126,4 @@ plt.ylabel('RMSE')
 plt.title('RMSE for Training and Test Sets')
 plt.legend()
 plt.show()
-
+"""
