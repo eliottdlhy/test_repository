@@ -135,7 +135,12 @@ y_train = train_set.iloc[:, -1]
 
 weather = pd.read_csv("weather_data.csv")
 merged_train = train_set.merge(weather, on="DATETIME", how="left")
-cols_train_drop = ["DATETIME", "ENTITY_DESCRIPTION_SHORT", "TIME_TO_PARADE_1", "TIME_TO_PARADE_2", "TIME_TO_NIGHT_SHOW", "WAIT_TIME_IN_2H", "rain_1h", "snow_1h"]
+merged_train = pd.get_dummies(merged_train, columns=["ENTITY_DESCRIPTION_SHORT"])
+merged_train['DATETIME'] = pd.to_datetime(merged_train['DATETIME'], format="%Y-%m-%d %H:%M:%S")
+merged_train['day_of_week'] = merged_train['DATETIME'].dt.dayofweek
+merged_train['month'] = merged_train['DATETIME'].dt.month
+merged_train['hour'] = merged_train['DATETIME'].dt.hour
+cols_train_drop = ["DATETIME", "TIME_TO_PARADE_1", "TIME_TO_PARADE_2", "TIME_TO_NIGHT_SHOW", "WAIT_TIME_IN_2H", "rain_1h", "snow_1h"]
 merged_train = merged_train.drop(columns=[c for c in cols_train_drop if c in merged_train.columns])
 scaler = StandardScaler()
 x_train = pd.DataFrame(
@@ -234,7 +239,12 @@ model.load_state_dict(best_state)
 weather = pd.read_csv("weather_data.csv")
 test_set = pd.read_csv("waiting_times_X_test_val.csv")
 merged_test = test_set.merge(weather, on="DATETIME", how="left")
-cols_test_drop = ["DATETIME", "ENTITY_DESCRIPTION_SHORT", "TIME_TO_PARADE_1", "TIME_TO_PARADE_2", "TIME_TO_NIGHT_SHOW", "WAIT_TIME_IN_2H", "rain_1h", "snow_1h"]
+merged_test = pd.get_dummies(merged_test, columns=["ENTITY_DESCRIPTION_SHORT"])
+merged_test['DATETIME'] = pd.to_datetime(merged_test['DATETIME'], format="%Y-%m-%d %H:%M:%S")
+merged_test['day_of_week'] = merged_test['DATETIME'].dt.dayofweek
+merged_test['month'] = merged_test['DATETIME'].dt.month
+merged_test['hour'] = merged_test['DATETIME'].dt.hour
+cols_test_drop = ["DATETIME", "TIME_TO_PARADE_1", "TIME_TO_PARADE_2", "TIME_TO_NIGHT_SHOW", "WAIT_TIME_IN_2H", "rain_1h", "snow_1h"]
 merged_test = merged_test.drop(columns=[c for c in cols_test_drop if c in merged_test.columns])
 x_test = pd.DataFrame(
     scaler.transform(merged_test),
