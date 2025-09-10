@@ -137,6 +137,11 @@ weather = pd.read_csv("weather_data.csv")
 merged_train = train_set.merge(weather, on="DATETIME", how="left")
 merged_train = pd.get_dummies(merged_train, columns=["ENTITY_DESCRIPTION_SHORT"])
 merged_train["DATETIME"] = pd.to_datetime(merged_train["DATETIME"], format="%Y-%m-%d %H:%M:%S")
+
+start_covid = pd.Timestamp("2020-03-01 00:00:00")
+end_covid   = pd.Timestamp("2021-12-31 23:59:59")
+merged_train["is_covid"] = merged_train["DATETIME"].between(start_covid, end_covid).astype(int)
+
 merged_train["day_of_week"] = merged_train["DATETIME"].dt.dayofweek
 merged_train["is_weekend"] = merged_train["day_of_week"].isin([5,6]).astype(int)
 merged_train = pd.get_dummies(merged_train, columns=["day_of_week"])
@@ -295,14 +300,14 @@ model = MLPBaseline()
 
 criterion = nn.MSELoss()  # classification multi-classe
 optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-4)
-"""
+
 scheduler = optim.lr_scheduler.ReduceLROnPlateau(
     optimizer,
     mode='min',       # on cherche à minimiser la loss
     factor=0.5,       # lr = lr * factor
     patience=3,       # combien d'epochs sans amélioration avant de réduire
 )
-"""
+
 
 num_epochs = 100
 best_rmse = float('inf')
@@ -331,7 +336,7 @@ for epoch in range(num_epochs):
     rmse = np.sqrt(np.mean(squared_errors))
     print(f"Epoch {epoch+1}: Val RMSE = {rmse:.4f}")
 
-    #scheduler.step(rmse)
+    scheduler.step(rmse)
 
     if rmse < best_rmse:
         best_rmse = rmse
@@ -352,6 +357,9 @@ test_set = pd.read_csv("waiting_times_X_test_val.csv")
 merged_test = test_set.merge(weather, on="DATETIME", how="left")
 merged_test = pd.get_dummies(merged_test, columns=["ENTITY_DESCRIPTION_SHORT"])
 merged_test["DATETIME"] = pd.to_datetime(merged_test["DATETIME"], format="%Y-%m-%d %H:%M:%S")
+
+merged_test["is_covid"] = merged_test["DATETIME"].between(start_covid, end_covid).astype(int)
+
 merged_test["day_of_week"] = merged_test["DATETIME"].dt.dayofweek
 merged_test["is_weekend"] = merged_test["day_of_week"].isin([5,6]).astype(int)
 merged_test = pd.get_dummies(merged_test, columns=["day_of_week"])

@@ -1,91 +1,60 @@
+import xgboost as xgb
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error
+import numpy as np
 import pandas as pd
 
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import PolynomialFeatures
-from sklearn.linear_model import LinearRegression, Ridge
-from sklearn.metrics import mean_squared_error
-from sklearn.decomposition import PCA
-SEED=41
-
-train_set_new = pd.read_csv("waiting_times_train(in).csv", sep=";")
 train_set = pd.read_csv("waiting_times_train.csv")
-#train_sans_y = train_set.iloc[:, :-1]
-y_time = train_set.iloc[:, -1]
+y_train = train_set.iloc[:, -1]
+
+weather = pd.read_csv("weather_data.csv")
+merged_train = train_set.merge(weather, on="DATETIME", how="left")
+merged_train = pd.get_dummies(merged_train, columns=["ENTITY_DESCRIPTION_SHORT"])
+merged_train["DATETIME"] = pd.to_datetime(merged_train["DATETIME"], format="%Y-%m-%d %H:%M:%S")
+
+start_covid = pd.Timestamp("2020-03-01 00:00:00")
+end_covid   = pd.Timestamp("2021-12-31 23:59:59")
+merged_train["is_covid"] = merged_train["DATETIME"].between(start_covid, end_covid).astype(int)
+
+merged_train["day_of_week"] = merged_train["DATETIME"].dt.dayofweek
+merged_train["is_weekend"] = merged_train["day_of_week"].isin([5,6]).astype(int)
+merged_train = pd.get_dummies(merged_train, columns=["day_of_week"])
+merged_train["month"] = merged_train["DATETIME"].dt.month
+merged_train["is_vacation"] = merged_train["month"].isin([6,7,8]).astype(int)
+merged_train["month_sin"] = np.sin(2 * np.pi * merged_train["month"] / 12)
+merged_train["month_cos"] = np.cos(2 * np.pi * merged_train["month"] / 12)
+merged_train["hour"] = merged_train["DATETIME"].dt.hour
+merged_train["hour_sin"] = np.sin(2 * np.pi * merged_train["hour"] / 24)
+merged_train["hour_cos"] = np.cos(2 * np.pi * merged_train["hour"] / 24)
+merged_train = merged_train.drop(columns=["DATETIME", "hour", "month"])
+merged_train = merged_train.drop(columns=["WAIT_TIME_IN_2H"])
+"""
+merged_train["temp_diff"] = merged_train["feels_like"] - merged_train["temp"]
+merged_train["temp_humidity"] = merged_train["temp"] * merged_train["humidity"]/100
+merged_train["wind_effect"] = merged_train["wind_speed"] * (1 + merged_train["clouds_all"]/100)
+
+merged_train["precipitation"] = merged_train["rain_1h"].fillna(0) + merged_train["snow_1h"].fillna(0)
+merged_train['wait_rolling_mean_3h'] = merged_train['CURRENT_WAIT_TIME'].rolling(3).mean().fillna(merged_train['CURRENT_WAIT_TIME'].median())
+merged_train["next_parade_time"] = merged_train[["TIME_TO_PARADE_1","TIME_TO_PARADE_2"]].min(axis=1)
+merged_train["parade_in_progress"] = ((merged_train["TIME_TO_PARADE_1"] <= 0) | (merged_train["TIME_TO_PARADE_2"] <= 0)).astype(int)
+merged_train["night_show_in_progress"] = (merged_train["TIME_TO_NIGHT_SHOW"] <= 0).astype(int)
+merged_train["adjusted_load"] = merged_train["CURRENT_WAIT_TIME"] / (merged_train["ADJUST_CAPACITY"] + 1)
+merged_train["total_event_wait"] = merged_train[["TIME_TO_PARADE_1","TIME_TO_PARADE_2","TIME_TO_NIGHT_SHOW"]].sum(axis=1)
+"""
+"""
+cols_train_drop = ["dew_point", "pressure", "day_of_week_0", "day_of_week_1", "day_of_week_2", "day_of_week_3", "day_of_week_4", "day_of_week_5", "day_of_week_6"]#, "rain_1h", "snow_1h"]
+merged_train = merged_train.drop(columns=[c for c in cols_train_drop if c in merged_train.columns])
+"""
 
 
 
-def RMSE(x,y):
-  return np.sqrt(mean_squared_error(x,y))
 
 
-def true_train_function(a=0, b=None):
+# Features
+features = merged_train.drop(columns=["CURRENT_WAIT_TIME"])  # ou ta colonne cible
+target = merged_train["CURRENT_WAIT_TIME"]
 
-    if b == None:
-        #b = len(train_sans_y) 
-        b = len(train_set_new) 
-
-    #new_X = train_sans_y.iloc[a:b]
-    new_X = train_set_new.iloc[a:b]
-    Y = y_time.iloc[a:b]
-
-    return Y
-
-
-def poly_fit(X, Y, deg):
-    """
-    Fits a polynomial regression model to the data.
-
-    INPUTS:
-    X : numpy.ndarray, Input data of shape (N, D)
-    Y : numpy.ndarray, Target values of shape (N,).
-    deg : int, degree of the polynomial features.
-
-    RETURNS:
-    LinearRegression, The fitted linear regression model.
-    """
-    X_poly = PolynomialFeatures(degree=deg).fit_transform(X)
-
-    lin_reg = LinearRegression()
-    lin_reg.fit(X_poly, Y)
-
-    return lin_reg
-
-
-
-def poly_apply(lin_reg, degree, X):
-    """
-    Applies the fitted polynomial regression model to new data.
-
-    INPUTS:
-    lin_reg : LinearRegression, The fitted linear regression model.
-    degree : int, The degree of the polynomial features used in the model.
-    X : numpy.ndarray, Input data to apply the model on, of shape (N, D).
-
-    RETRUNS:
-    numpy.ndarray, The predicted target values for the input data.
-    """
-    X_poly = PolynomialFeatures(degree).fit_transform(X)
-
-    return lin_reg.predict(X_poly)
-
-
-
-deg = 7
-
-#lin_reg = poly_fit(train_sans_y, y_time, deg)
-lin_reg = poly_fit(train_set_new, y_time, deg)
-
-#RMSE_train = RMSE(poly_apply(lin_reg, deg, train_sans_y), y_time)
-RMSE_train = RMSE(poly_apply(lin_reg, deg, train_set_new), y_time)
-
-
-print(f"Degree = {deg}, RMSE_train = {RMSE_train:.3f}")
-
-
-x_test = pd.read_csv("waiting_times_X_test_val(2).csv")
-y_pred = poly_apply(lin_reg, deg, x_test)
-x_test["y_pred"] = y_pred
-x_test.to_csv("nouveau_val_set.csv", index=False)
+# Train/test split
+X_train, X_val, y_train, y_val = train_test_split(
+    features, target, test_size=0.2, random_state=42
+)
