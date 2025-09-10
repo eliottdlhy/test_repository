@@ -128,7 +128,17 @@ torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 
 
-
+def mark_special_event(dt):
+    fixed_holidays = {(1,1), (5,1), (5,8), (7,14), (8,15), (11,1), (11,11), (12,31)}
+    if dt.month == 12 and dt.day not in [24,25] and dt.day >= 17:
+        return 1
+    if dt.month == 10 and dt.day >= 25:
+        return 1
+    if dt.month in [9,10] and dt.weekday() == 5:
+        return 1
+    if (dt.month, dt.day) in fixed_holidays:
+        return 1
+    return 0
 
 train_set = pd.read_csv("waiting_times_train.csv")
 y_train = train_set.iloc[:, -1]
@@ -152,6 +162,7 @@ merged_train["month_cos"] = np.cos(2 * np.pi * merged_train["month"] / 12)
 merged_train["hour"] = merged_train["DATETIME"].dt.hour
 merged_train["hour_sin"] = np.sin(2 * np.pi * merged_train["hour"] / 24)
 merged_train["hour_cos"] = np.cos(2 * np.pi * merged_train["hour"] / 24)
+merged_train["special_event"] = merged_train["DATETIME"].apply(mark_special_event)
 merged_train = merged_train.drop(columns=["DATETIME", "hour", "month"])
 merged_train = merged_train.drop(columns=["WAIT_TIME_IN_2H"])
 """
@@ -370,6 +381,7 @@ merged_test["month_cos"] = np.cos(2 * np.pi * merged_test["month"] / 12)
 merged_test["hour"] = merged_test["DATETIME"].dt.hour
 merged_test["hour_sin"] = np.sin(2 * np.pi * merged_test["hour"] / 24)
 merged_test["hour_cos"] = np.cos(2 * np.pi * merged_test["hour"] / 24)
+merged_test["special_event"] = merged_test["DATETIME"].apply(mark_special_event)
 merged_test = merged_test.drop(columns=["DATETIME", "hour", "month"])
 """
 merged_test["temp_diff"] = merged_test["feels_like"] - merged_test["temp"]
