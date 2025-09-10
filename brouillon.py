@@ -141,15 +141,36 @@ merged_train["day_of_week"] = merged_train["DATETIME"].dt.dayofweek
 merged_train["is_weekend"] = merged_train["day_of_week"].isin([5,6]).astype(int)
 merged_train = pd.get_dummies(merged_train, columns=["day_of_week"])
 merged_train["month"] = merged_train["DATETIME"].dt.month
+merged_train["is_vacation"] = merged_train["month"].isin([6,7,8]).astype(int)
 merged_train["month_sin"] = np.sin(2 * np.pi * merged_train["month"] / 12)
 merged_train["month_cos"] = np.cos(2 * np.pi * merged_train["month"] / 12)
 merged_train["hour"] = merged_train["DATETIME"].dt.hour
 merged_train["hour_sin"] = np.sin(2 * np.pi * merged_train["hour"] / 24)
 merged_train["hour_cos"] = np.cos(2 * np.pi * merged_train["hour"] / 24)
 merged_train = merged_train.drop(columns=["DATETIME", "hour", "month"])
-cols_train_drop = ["TIME_TO_PARADE_1", "TIME_TO_PARADE_2", "TIME_TO_NIGHT_SHOW", "WAIT_TIME_IN_2H", "rain_1h", "snow_1h"]
+merged_train = merged_train.drop(columns=["WAIT_TIME_IN_2H"])
+"""
+merged_train["temp_diff"] = merged_train["feels_like"] - merged_train["temp"]
+merged_train["temp_humidity"] = merged_train["temp"] * merged_train["humidity"]/100
+merged_train["wind_effect"] = merged_train["wind_speed"] * (1 + merged_train["clouds_all"]/100)
+"""
+features_nan = ["TIME_TO_PARADE_1", "TIME_TO_PARADE_2", "TIME_TO_NIGHT_SHOW", "rain_1h", "snow_1h"]
+for col in features_nan:
+    #merged_train[col] = merged_train[col].fillna(merged_train[col].mean())
+    merged_train[col] = merged_train[col].fillna(merged_train[col].median())
+"""
+merged_train["precipitation"] = merged_train["rain_1h"].fillna(0) + merged_train["snow_1h"].fillna(0)
+merged_train['wait_rolling_mean_3h'] = merged_train['CURRENT_WAIT_TIME'].rolling(3).mean().fillna(merged_train['CURRENT_WAIT_TIME'].median())
+merged_train["next_parade_time"] = merged_train[["TIME_TO_PARADE_1","TIME_TO_PARADE_2"]].min(axis=1)
+merged_train["parade_in_progress"] = ((merged_train["TIME_TO_PARADE_1"] <= 0) | (merged_train["TIME_TO_PARADE_2"] <= 0)).astype(int)
+merged_train["night_show_in_progress"] = (merged_train["TIME_TO_NIGHT_SHOW"] <= 0).astype(int)
+merged_train["adjusted_load"] = merged_train["CURRENT_WAIT_TIME"] / (merged_train["ADJUST_CAPACITY"] + 1)
+merged_train["total_event_wait"] = merged_train[["TIME_TO_PARADE_1","TIME_TO_PARADE_2","TIME_TO_NIGHT_SHOW"]].sum(axis=1)
+"""
+cols_train_drop = ["dew_point", "pressure", "day_of_week_0", "day_of_week_1", "day_of_week_2", "day_of_week_3", "day_of_week_4", "day_of_week_5", "day_of_week_6"]#, "rain_1h", "snow_1h"]
 merged_train = merged_train.drop(columns=[c for c in cols_train_drop if c in merged_train.columns])
 scaler = StandardScaler()
+print(merged_train.head())
 x_train = pd.DataFrame(
     scaler.fit_transform(merged_train),
     columns=merged_train.columns,
@@ -164,6 +185,11 @@ print("Noms des colonnes :", list(x_train.columns))
 # Convertir DataFrame/Series en tensors
 x_tensor = torch.tensor(x_train.values, dtype=torch.float32)
 y_tensor = torch.tensor(y_train.values, dtype=torch.float32)
+
+print("X NaN:", np.isnan(x_tensor.numpy()).sum())
+print("X inf:", np.isinf(x_tensor.numpy()).sum())
+print("Y NaN:", np.isnan(y_tensor.numpy()).sum())
+print("Y inf:", np.isinf(y_tensor.numpy()).sum())
 
 dataset = TensorDataset(x_tensor, y_tensor)
 
@@ -180,6 +206,7 @@ val_loader = DataLoader(val_dataset, batch_size=batch_size)
 input_dim = x_train.shape[1]  # nombre de features
 hidden_dim = 128
 dropout=0.4
+#num_classes = 37
 
 class MLPBaseline(nn.Module):
     def __init__(self):
@@ -199,16 +226,88 @@ class MLPBaseline(nn.Module):
     def forward(self, x):
         return self.network(x).squeeze(1)
     
+class MLPImproved(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.network = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ELU(),                  # ou nn.LeakyReLU(0.1)
+            nn.BatchNorm1d(hidden_dim),
+            nn.Dropout(dropout),
+
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ELU(),
+            nn.BatchNorm1d(hidden_dim),
+            nn.Dropout(dropout),
+
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ELU(),
+            nn.BatchNorm1d(hidden_dim),
+            nn.Dropout(dropout),
+
+            nn.Linear(hidden_dim, 1)   # sortie régression
+        )
+
+    def forward(self, x):
+        return self.network(x).squeeze(1)
+
+class CNNBaseline(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.conv_layers = nn.Sequential(
+            nn.Conv1d(in_channels=25, out_channels=32, kernel_size=3, padding=1),  # entrée = 37 features
+            nn.ReLU(),
+            nn.BatchNorm1d(32),
+            
+            nn.Conv1d(32, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.BatchNorm1d(64),
+            
+            nn.AdaptiveMaxPool1d(1)  # réduit la séquence à 1 pour chaque canal
+        )
+
+        # Fully connected (MLP)
+        self.fc_layers = nn.Sequential(
+            nn.Linear(64, hidden_dim),
+            nn.ReLU(),
+            nn.BatchNorm1d(hidden_dim),
+            nn.Dropout(dropout),
+            
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.BatchNorm1d(hidden_dim),
+            nn.Dropout(dropout),
+            
+            nn.Linear(hidden_dim, 1)  # sortie régression
+        )
+
+    def forward(self, x):
+        # x a la forme (B, features)
+        x = x.unsqueeze(2)  # transforme en (B, features, 1) pour Conv1d
+        x = self.conv_layers(x)  # (B, 64, 1)
+        x = x.view(x.size(0), -1)  # flatten -> (B, 64)
+        x = self.fc_layers(x)       # -> (B, 1)
+        return x.squeeze(1)
+    
 model = MLPBaseline()
+#model = MLPImproved()
+#model = CNNBaseline()
 
 criterion = nn.MSELoss()  # classification multi-classe
 optimizer = optim.Adam(model.parameters(), lr=1e-4, weight_decay=1e-4)
-
+"""
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+    optimizer,
+    mode='min',       # on cherche à minimiser la loss
+    factor=0.5,       # lr = lr * factor
+    patience=3,       # combien d'epochs sans amélioration avant de réduire
+)
+"""
 
 num_epochs = 100
 best_rmse = float('inf')
 iteration = 0
-limite_iteration = 5
+limite_iteration = 10
 best_state = None
 
 for epoch in range(num_epochs):
@@ -231,6 +330,8 @@ for epoch in range(num_epochs):
 
     rmse = np.sqrt(np.mean(squared_errors))
     print(f"Epoch {epoch+1}: Val RMSE = {rmse:.4f}")
+
+    #scheduler.step(rmse)
 
     if rmse < best_rmse:
         best_rmse = rmse
@@ -255,13 +356,32 @@ merged_test["day_of_week"] = merged_test["DATETIME"].dt.dayofweek
 merged_test["is_weekend"] = merged_test["day_of_week"].isin([5,6]).astype(int)
 merged_test = pd.get_dummies(merged_test, columns=["day_of_week"])
 merged_test["month"] = merged_test["DATETIME"].dt.month
+merged_test["is_vacation"] = merged_test["month"].isin([6,7,8]).astype(int)
 merged_test["month_sin"] = np.sin(2 * np.pi * merged_test["month"] / 12)
 merged_test["month_cos"] = np.cos(2 * np.pi * merged_test["month"] / 12)
 merged_test["hour"] = merged_test["DATETIME"].dt.hour
 merged_test["hour_sin"] = np.sin(2 * np.pi * merged_test["hour"] / 24)
 merged_test["hour_cos"] = np.cos(2 * np.pi * merged_test["hour"] / 24)
 merged_test = merged_test.drop(columns=["DATETIME", "hour", "month"])
-cols_test_drop = ["TIME_TO_PARADE_1", "TIME_TO_PARADE_2", "TIME_TO_NIGHT_SHOW", "WAIT_TIME_IN_2H", "rain_1h", "snow_1h"]
+"""
+merged_test["temp_diff"] = merged_test["feels_like"] - merged_test["temp"]
+merged_test["temp_humidity"] = merged_test["temp"] * merged_test["humidity"]/100
+merged_test["wind_effect"] = merged_test["wind_speed"] * (1 + merged_test["clouds_all"]/100)
+"""
+features_nan = ["TIME_TO_PARADE_1", "TIME_TO_PARADE_2", "TIME_TO_NIGHT_SHOW", "rain_1h", "snow_1h"]
+for col in features_nan:
+    #merged_test[col] = merged_test[col].fillna(merged_test[col].mean())
+    merged_test[col] = merged_test[col].fillna(merged_test[col].median())
+"""
+merged_test["precipitation"] = merged_test["rain_1h"].fillna(0) + merged_test["snow_1h"].fillna(0)
+merged_test['wait_rolling_mean_3h'] = merged_test['CURRENT_WAIT_TIME'].rolling(3).mean().fillna(merged_test['CURRENT_WAIT_TIME'].median())
+merged_test["next_parade_time"] = merged_test[["TIME_TO_PARADE_1","TIME_TO_PARADE_2"]].min(axis=1)
+merged_test["parade_in_progress"] = ((merged_test["TIME_TO_PARADE_1"] <= 0) | (merged_test["TIME_TO_PARADE_2"] <= 0)).astype(int)
+merged_test["night_show_in_progress"] = (merged_test["TIME_TO_NIGHT_SHOW"] <= 0).astype(int)
+merged_test["adjusted_load"] = merged_test["CURRENT_WAIT_TIME"] / (merged_test["ADJUST_CAPACITY"] + 1)
+merged_test["total_event_wait"] = merged_test[["TIME_TO_PARADE_1","TIME_TO_PARADE_2","TIME_TO_NIGHT_SHOW"]].sum(axis=1)
+"""
+cols_test_drop = ["dew_point", "pressure", "day_of_week_0", "day_of_week_1", "day_of_week_2", "day_of_week_3", "day_of_week_4", "day_of_week_5", "day_of_week_6"]#, "rain_1h", "snow_1h"]
 merged_test = merged_test.drop(columns=[c for c in cols_test_drop if c in merged_test.columns])
 x_test = pd.DataFrame(
     scaler.transform(merged_test),
@@ -278,14 +398,17 @@ all_preds = []
 with torch.no_grad():
     for (x_test_batch,) in test_loader:
         preds = model(x_test_batch)
+        """
         # arrondir aux multiples de 5 pour garder l'échelle
         preds_rounded = torch.clamp(torch.round(preds / 5) * 5, 0, 180)
         all_preds.extend(preds_rounded.cpu().numpy())
+        """
+        all_preds.extend(preds.cpu().numpy())
 
 y_test_pred = pd.Series(all_preds, name="y_pred")
 set_arendre = pd.read_csv("waiting_times_X_test_val.csv")
 cols_arendre_drop = ["DOWNTIME", "TIME_TO_PARADE_1", "TIME_TO_PARADE_2", "TIME_TO_NIGHT_SHOW", "ADJUST_CAPACITY", "CURRENT_WAIT_TIME"]
 set_arendre = set_arendre.drop(columns=[c for c in cols_arendre_drop if c in set_arendre.columns])
-set_arendre["KEY"] = "Validation"
 set_arendre["y_pred"] = y_test_pred
+set_arendre["KEY"] = "Validation"
 set_arendre.to_csv("set_arendre.csv", index=False)
