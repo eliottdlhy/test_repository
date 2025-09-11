@@ -100,6 +100,62 @@ plt.ylabel('RMSE')
 plt.title('RMSE for Training and Test Sets')
 plt.legend()
 plt.show()
+
+
+
+
+
+
+
+
+weather = pd.read_csv("weather_data.csv")
+merged_train = train_set.merge(weather, on="DATETIME", how="left")
+#merged_train = pd.get_dummies(merged_train, columns=["ENTITY_DESCRIPTION_SHORT"])
+merged_train["DATETIME"] = pd.to_datetime(merged_train["DATETIME"], format="%Y-%m-%d %H:%M:%S")
+
+start_covid = pd.Timestamp("2020-03-01 00:00:00")
+end_covid   = pd.Timestamp("2021-12-31 23:59:59")
+merged_train["is_covid"] = merged_train["DATETIME"].between(start_covid, end_covid).astype(int)
+
+merged_train["day_of_week"] = merged_train["DATETIME"].dt.dayofweek
+merged_train["is_weekend"] = merged_train["day_of_week"].isin([5,6]).astype(int)
+merged_train = pd.get_dummies(merged_train, columns=["day_of_week"])
+merged_train["month"] = merged_train["DATETIME"].dt.month
+merged_train["is_vacation"] = merged_train["month"].isin([6,7,8]).astype(int)
+merged_train["month_sin"] = np.sin(2 * np.pi * merged_train["month"] / 12)
+merged_train["month_cos"] = np.cos(2 * np.pi * merged_train["month"] / 12)
+merged_train["hour"] = merged_train["DATETIME"].dt.hour
+merged_train["hour_sin"] = np.sin(2 * np.pi * merged_train["hour"] / 24)
+merged_train["hour_cos"] = np.cos(2 * np.pi * merged_train["hour"] / 24)
+merged_train["special_event"] = merged_train["DATETIME"].apply(mark_special_event)
+merged_train = merged_train.drop(columns=["DATETIME", "hour", "month"])
+
+
+
+
+
+
+
+weather = pd.read_csv("weather_data.csv")
+test_set = pd.read_csv("waiting_times_X_test_val.csv")
+merged_test = test_set.merge(weather, on="DATETIME", how="left")
+#merged_test = pd.get_dummies(merged_test, columns=["ENTITY_DESCRIPTION_SHORT"])
+merged_test["DATETIME"] = pd.to_datetime(merged_test["DATETIME"], format="%Y-%m-%d %H:%M:%S")
+
+merged_test["is_covid"] = merged_test["DATETIME"].between(start_covid, end_covid).astype(int)
+
+merged_test["day_of_week"] = merged_test["DATETIME"].dt.dayofweek
+merged_test["is_weekend"] = merged_test["day_of_week"].isin([5,6]).astype(int)
+merged_test = pd.get_dummies(merged_test, columns=["day_of_week"])
+merged_test["month"] = merged_test["DATETIME"].dt.month
+merged_test["is_vacation"] = merged_test["month"].isin([6,7,8]).astype(int)
+merged_test["month_sin"] = np.sin(2 * np.pi * merged_test["month"] / 12)
+merged_test["month_cos"] = np.cos(2 * np.pi * merged_test["month"] / 12)
+merged_test["hour"] = merged_test["DATETIME"].dt.hour
+merged_test["hour_sin"] = np.sin(2 * np.pi * merged_test["hour"] / 24)
+merged_test["hour_cos"] = np.cos(2 * np.pi * merged_test["hour"] / 24)
+merged_test["special_event"] = merged_test["DATETIME"].apply(mark_special_event)
+merged_test = merged_test.drop(columns=["DATETIME", "hour", "month"])
 """
 import torch
 import torch.nn as nn
@@ -185,6 +241,7 @@ merged_train["total_event_wait"] = merged_train[["TIME_TO_PARADE_1","TIME_TO_PAR
 """
 cols_train_drop = ["dew_point", "pressure", "day_of_week_0", "day_of_week_1", "day_of_week_2", "day_of_week_3", "day_of_week_4", "day_of_week_5", "day_of_week_6"]#, "rain_1h", "snow_1h"]
 merged_train = merged_train.drop(columns=[c for c in cols_train_drop if c in merged_train.columns])
+
 scaler = StandardScaler()
 print(merged_train.head())
 x_train = pd.DataFrame(

@@ -1,131 +1,87 @@
 import xgboost as xgb
 from xgboost import XGBRegressor
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_squared_error
 import numpy as np
 import pandas as pd
-
-import pandas as pd
-import numpy as np
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, classification_report
-import xgboost as xgb
 from sklearn.datasets import make_classification
-
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.datasets import make_regression
-import xgboost as xgb
-
+from sklearn.model_selection import RandomizedSearchCV
 from sklearn.model_selection import GridSearchCV
-import xgboost as xgb
+
 # Set random seed for reproducibility
 np.random.seed(42)
 
-from sklearn.model_selection import GridSearchCV
-from sklearn.metrics import mean_squared_error
-import xgboost as xgb
-import numpy as np
-
-from sklearn.model_selection import RandomizedSearchCV
-import numpy as np
 
 
-print(xgb.__version__)
-
-train_set = pd.read_csv("waiting_times_train.csv")
-y_target = train_set.iloc[:, -1]
-
-weather = pd.read_csv("weather_data.csv")
-merged_train = train_set.merge(weather, on="DATETIME", how="left")
-merged_train = pd.get_dummies(merged_train, columns=["ENTITY_DESCRIPTION_SHORT"])
-merged_train["DATETIME"] = pd.to_datetime(merged_train["DATETIME"], format="%Y-%m-%d %H:%M:%S")
+def mark_special_event(dt):
+    fixed_holidays = {(1,1), (5,1), (5,8), (7,14), (8,15), (11,1), (11,11), (12,31)}
+    if dt.month == 12 and dt.day not in [24,25] and dt.day >= 17:
+        return 1
+    if dt.month == 10 and dt.day >= 25:
+        return 1
+    if dt.month in [9,10] and dt.weekday() == 5:
+        return 1
+    if (dt.month, dt.day) in fixed_holidays:
+        return 1
+    return 0
 
 start_covid = pd.Timestamp("2020-03-01 00:00:00")
 end_covid   = pd.Timestamp("2021-12-31 23:59:59")
-merged_train["is_covid"] = merged_train["DATETIME"].between(start_covid, end_covid).astype(int)
 
-merged_train["day_of_week"] = merged_train["DATETIME"].dt.dayofweek
-merged_train["is_weekend"] = merged_train["day_of_week"].isin([5,6]).astype(int)
-merged_train = pd.get_dummies(merged_train, columns=["day_of_week"])
-merged_train["month"] = merged_train["DATETIME"].dt.month
-merged_train["is_vacation"] = merged_train["month"].isin([6,7,8]).astype(int)
-merged_train["month_sin"] = np.sin(2 * np.pi * merged_train["month"] / 12)
-merged_train["month_cos"] = np.cos(2 * np.pi * merged_train["month"] / 12)
-merged_train["hour"] = merged_train["DATETIME"].dt.hour
-merged_train["hour_sin"] = np.sin(2 * np.pi * merged_train["hour"] / 24)
-merged_train["hour_cos"] = np.cos(2 * np.pi * merged_train["hour"] / 24)
-merged_train = merged_train.drop(columns=["DATETIME", "hour", "month"])
-merged_train = merged_train.drop(columns=["WAIT_TIME_IN_2H"])
-"""
-merged_train["temp_diff"] = merged_train["feels_like"] - merged_train["temp"]
-merged_train["temp_humidity"] = merged_train["temp"] * merged_train["humidity"]/100
-merged_train["wind_effect"] = merged_train["wind_speed"] * (1 + merged_train["clouds_all"]/100)
+def modify_df(data_frame):
+    weather = pd.read_csv("weather_data.csv")
+    df= data_frame.merge(weather, on="DATETIME", how="left")
+    #df = pd.get_dummies(df, columns=["ENTITY_DESCRIPTION_SHORT"])
+    df["DATETIME"] = pd.to_datetime(df["DATETIME"], format="%Y-%m-%d %H:%M:%S")
+    
+    df["is_covid"] = df["DATETIME"].between(start_covid, end_covid).astype(int)
 
-merged_train["precipitation"] = merged_train["rain_1h"].fillna(0) + merged_train["snow_1h"].fillna(0)
-merged_train['wait_rolling_mean_3h'] = merged_train['CURRENT_WAIT_TIME'].rolling(3).mean().fillna(merged_train['CURRENT_WAIT_TIME'].median())
-merged_train["next_parade_time"] = merged_train[["TIME_TO_PARADE_1","TIME_TO_PARADE_2"]].min(axis=1)
-merged_train["parade_in_progress"] = ((merged_train["TIME_TO_PARADE_1"] <= 0) | (merged_train["TIME_TO_PARADE_2"] <= 0)).astype(int)
-merged_train["night_show_in_progress"] = (merged_train["TIME_TO_NIGHT_SHOW"] <= 0).astype(int)
-merged_train["adjusted_load"] = merged_train["CURRENT_WAIT_TIME"] / (merged_train["ADJUST_CAPACITY"] + 1)
-merged_train["total_event_wait"] = merged_train[["TIME_TO_PARADE_1","TIME_TO_PARADE_2","TIME_TO_NIGHT_SHOW"]].sum(axis=1)
-"""
-"""
-cols_train_drop = ["dew_point", "pressure", "day_of_week_0", "day_of_week_1", "day_of_week_2", "day_of_week_3", "day_of_week_4", "day_of_week_5", "day_of_week_6"]#, "rain_1h", "snow_1h"]
-merged_train = merged_train.drop(columns=[c for c in cols_train_drop if c in merged_train.columns])
-"""
+    df["day_of_week"] = df["DATETIME"].dt.dayofweek
+    df["is_weekend"] = df["day_of_week"].isin([5,6]).astype(int)
+    df = pd.get_dummies(df, columns=["day_of_week"])
+    df["month"] = df["DATETIME"].dt.month
+    df["is_vacation"] = df["month"].isin([6,7,8]).astype(int)
+    df["month_sin"] = np.sin(2 * np.pi * df["month"] / 12)
+    df["month_cos"] = np.cos(2 * np.pi * df["month"] / 12)
+    df["hour"] = df["DATETIME"].dt.hour
+    df["hour_sin"] = np.sin(2 * np.pi * df["hour"] / 24)
+    df["hour_cos"] = np.cos(2 * np.pi * df["hour"] / 24)
+    df["special_event"] = df["DATETIME"].apply(mark_special_event)
+    df = df.drop(columns=["DATETIME", "hour", "month"])
+    return df
 
 
-weather = pd.read_csv("weather_data.csv")
+attraction = "Flying Coaster"
+#Train
+train_set = pd.read_csv("waiting_times_train.csv")
+train_set = train_set[train_set["ENTITY_DESCRIPTION_SHORT"] == attraction]
+y_target = train_set["WAIT_TIME_IN_2H"]
+train_set = train_set.drop(columns=["WAIT_TIME_IN_2H", "ENTITY_DESCRIPTION_SHORT"])
+
+merged_train = modify_df(train_set)
+
+# Test
 test_set = pd.read_csv("waiting_times_X_test_val.csv")
-merged_test = test_set.merge(weather, on="DATETIME", how="left")
-merged_test = pd.get_dummies(merged_test, columns=["ENTITY_DESCRIPTION_SHORT"])
-merged_test["DATETIME"] = pd.to_datetime(merged_test["DATETIME"], format="%Y-%m-%d %H:%M:%S")
+test_set = test_set[test_set["ENTITY_DESCRIPTION_SHORT"] == attraction]
+test_set = test_set.drop(columns=["ENTITY_DESCRIPTION_SHORT"])
 
-merged_test["is_covid"] = merged_test["DATETIME"].between(start_covid, end_covid).astype(int)
+merged_test = modify_df(test_set)
 
-merged_test["day_of_week"] = merged_test["DATETIME"].dt.dayofweek
-merged_test["is_weekend"] = merged_test["day_of_week"].isin([5,6]).astype(int)
-merged_test = pd.get_dummies(merged_test, columns=["day_of_week"])
-merged_test["month"] = merged_test["DATETIME"].dt.month
-merged_test["is_vacation"] = merged_test["month"].isin([6,7,8]).astype(int)
-merged_test["month_sin"] = np.sin(2 * np.pi * merged_test["month"] / 12)
-merged_test["month_cos"] = np.cos(2 * np.pi * merged_test["month"] / 12)
-merged_test["hour"] = merged_test["DATETIME"].dt.hour
-merged_test["hour_sin"] = np.sin(2 * np.pi * merged_test["hour"] / 24)
-merged_test["hour_cos"] = np.cos(2 * np.pi * merged_test["hour"] / 24)
-merged_test = merged_test.drop(columns=["DATETIME", "hour", "month"])
-"""
-merged_test["temp_diff"] = merged_test["feels_like"] - merged_test["temp"]
-merged_test["temp_humidity"] = merged_test["temp"] * merged_test["humidity"]/100
-merged_test["wind_effect"] = merged_test["wind_speed"] * (1 + merged_test["clouds_all"]/100)
-
-merged_test["precipitation"] = merged_test["rain_1h"].fillna(0) + merged_test["snow_1h"].fillna(0)
-merged_test['wait_rolling_mean_3h'] = merged_test['CURRENT_WAIT_TIME'].rolling(3).mean().fillna(merged_test['CURRENT_WAIT_TIME'].median())
-merged_test["next_parade_time"] = merged_test[["TIME_TO_PARADE_1","TIME_TO_PARADE_2"]].min(axis=1)
-merged_test["parade_in_progress"] = ((merged_test["TIME_TO_PARADE_1"] <= 0) | (merged_test["TIME_TO_PARADE_2"] <= 0)).astype(int)
-merged_test["night_show_in_progress"] = (merged_test["TIME_TO_NIGHT_SHOW"] <= 0).astype(int)
-merged_test["adjusted_load"] = merged_test["CURRENT_WAIT_TIME"] / (merged_test["ADJUST_CAPACITY"] + 1)
-merged_test["total_event_wait"] = merged_test[["TIME_TO_PARADE_1","TIME_TO_PARADE_2","TIME_TO_NIGHT_SHOW"]].sum(axis=1)
-"""
-"""
-cols_test_drop = ["dew_point", "pressure", "day_of_week_0", "day_of_week_1", "day_of_week_2", "day_of_week_3", "day_of_week_4", "day_of_week_5", "day_of_week_6"]#, "rain_1h", "snow_1h"]
-merged_test = merged_test.drop(columns=[c for c in cols_test_drop if c in merged_test.columns])
-"""
-
-
+##########################################################################################################""
 # Features
 features = merged_train
 target = y_target
 x_test = merged_test
 
+print(features.shape)
+print(x_test.shape)
+
 # Train/test split
 x_train, x_val, y_train, y_val = train_test_split(
-    features, target, test_size=0.2, random_state=42
+    features, target, test_size=0.3, random_state=42
 )
 
 
@@ -133,7 +89,65 @@ dtrain = xgb.DMatrix(x_train, label=y_train)
 dval = xgb.DMatrix(x_val, label=y_val)
 dtest = xgb.DMatrix(x_test)
 
+params = {
+    'objective': 'reg:squarederror',
+    'max_depth': 4,          # arbres moins profonds
+    'learning_rate': 0.05,
+    'subsample': 0.7,        # échantillonnage aléatoire
+    'colsample_bytree': 0.7, # sélection aléatoire de features
+    'min_child_weight': 5,   # plus strict sur les splits
+    'gamma': 0.1,            # pénalise les splits faibles
+    'alpha': 1,              # régularisation L1
+    'lambda': 2,             # régularisation L2
+    'n_estimators': 1000,
+    'random_state': 42,
+    'eval_metric': 'rmse'
+}
 
+num_round = 100
+watchlist = [(dtrain, 'train'), (dval, 'val')]
+
+model = xgb.XGBRegressor(**params)
+
+model.fit(
+    x_train, y_train,
+    eval_set=[(x_val, y_val)],
+    verbose=10
+)
+
+y_train_pred = model.predict(x_train)
+y_pred = model.predict(x_val)
+rmse = np.sqrt(mean_squared_error(y_val, y_pred))
+print("Validation RMSE:", rmse)
+
+
+y_test_pred = model.predict(x_test)
+set_arendre = test_set.reset_index(drop=True)
+set_arendre["ENTITY_DESCRIPTION_SHORT"] = attraction
+set_arendre["y_pred"] = y_test_pred
+set_arendre["KEY"] = "Validation"
+cols_arendre_drop = ["DOWNTIME", "TIME_TO_PARADE_1", "TIME_TO_PARADE_2", "TIME_TO_NIGHT_SHOW", "ADJUST_CAPACITY", "CURRENT_WAIT_TIME"]
+set_arendre = set_arendre.drop(columns=[c for c in cols_arendre_drop if c in set_arendre.columns])
+set_arendre.to_csv("arendre_xgboost_fc.csv", index=False)
+
+
+#############################################################################################################
+"""
+all_preds = model.predict(x_test)
+#all_preds = np.round(all_preds / 5) * 5      #arrondir semble ne pas marcher
+y_test_pred = pd.Series(all_preds, name="y_pred")
+set_arendre = pd.read_csv("waiting_times_X_test_val.csv")
+cols_arendre_drop = ["DOWNTIME", "TIME_TO_PARADE_1", "TIME_TO_PARADE_2", "TIME_TO_NIGHT_SHOW", "ADJUST_CAPACITY", "CURRENT_WAIT_TIME"]
+set_arendre = set_arendre.drop(columns=[c for c in cols_arendre_drop if c in set_arendre.columns])
+ 
+set_arendre = set_arendre[set_arendre["ENTITY_DESCRIPTION_SHORT"] == "Water Ride"] 
+
+
+set_arendre["y_pred"] = y_test_pred
+set_arendre["KEY"] = "Validation"
+set_arendre.to_csv("arendre_xgboost_wr", index=False)
+"""
+"""
 # 4. Définition des paramètres du modèle
 params = {
     'objective': 'reg:squarederror',
@@ -147,27 +161,8 @@ params = {
     'eval_metric': 'rmse',
     "n_estimators": 1000
 }
-# 5. Entraînement avec validation early stopping
-num_round = 100
-watchlist = [(dtrain, 'train'), (dval, 'val')]
 
-model = xgb.XGBRegressor(**params)
-
-# Entraînement avec validation set pour early stopping
-model.fit(
-    x_train, y_train,
-    eval_set=[(x_val, y_val)],
-    verbose=10
-)
-
-y_train_pred = model.predict(x_train)
-
-y_pred = model.predict(x_val)
-rmse = np.sqrt(mean_squared_error(y_val, y_pred))
-print("Validation RMSE:", rmse)
-
-all_preds = model.predict(x_test)
-"""
+#################################################################################################
 # Features
 features = merged_train
 target = y_target
@@ -209,8 +204,9 @@ rand_search = RandomizedSearchCV(
 rand_search.fit(x_train, y_train)
 print("Best params:", rand_search.best_params_)
 print("Best RMSE:", -rand_search.best_score_)
-"""
-"""
+
+#####################################################################################
+
 # Grille d’hyperparamètres à tester
 param_grid = {
     "max_depth": [4, 6, 8],
@@ -251,13 +247,3 @@ print("Validation RMSE:", rmse)
 all_preds = best_model.predict(x_test)
 """
 
-
-
-
-y_test_pred = pd.Series(all_preds, name="y_pred")
-set_arendre = pd.read_csv("waiting_times_X_test_val.csv")
-cols_arendre_drop = ["DOWNTIME", "TIME_TO_PARADE_1", "TIME_TO_PARADE_2", "TIME_TO_NIGHT_SHOW", "ADJUST_CAPACITY", "CURRENT_WAIT_TIME"]
-set_arendre = set_arendre.drop(columns=[c for c in cols_arendre_drop if c in set_arendre.columns])
-set_arendre["y_pred"] = y_test_pred
-set_arendre["KEY"] = "Validation"
-set_arendre.to_csv("arendre_xgboost", index=False)
