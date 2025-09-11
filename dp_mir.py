@@ -140,19 +140,19 @@ print("Entraînement du modèle...")
 
 model = XGBRegressor(
     objective='reg:squarederror',
-    max_depth=6,  # Augmenté légèrement
-    learning_rate=0.05,  # Réduit pour plus de stabilité
+    max_depth=5,  # Augmenté légèrement
+    learning_rate=0.06,  # Réduit pour plus de stabilité
     subsample=0.8,
     colsample_bytree=0.8,
     colsample_bylevel=0.8,
-    n_estimators=3000,  # Augmenté avec early stopping
+    n_estimators=800,  # Augmenté avec early stopping
     random_state=42,
     gamma=0.2,
     min_child_weight=3,  # Réduit
     reg_alpha=0.1,
     reg_lambda=1.0,
     eval_metric='rmse',
-    early_stopping_rounds=150,
+    early_stopping_rounds=1500,
     n_jobs=-1,  # Utiliser tous les cores
     tree_method='hist',  # Plus rapide pour grandes datasets
     enable_categorical=False
@@ -229,5 +229,5 @@ print(f"Moyenne: {y_test_pred.mean():.1f}")
 print(f"Nombre de prédictions: {len(y_test_pred)}")
 
 # Sauvegarde
-output.to_csv("predictions_optimized.csv", index=False)
+output.to_csv("predictions.csv", index=False)
 print("\n✅ Prédictions sauvegardées dans 'predictions_optimized.csv'")
